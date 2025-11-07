@@ -23,9 +23,9 @@ import matplotlib.pyplot as plt
 from scipy.optimize import fsolve
 
 def dYdt( t, Y, \
-         amp = lambda t, Y, **kwrd: -1.3, \
+         amp = lambda t, Y, **kwrd: 1.3, \
          far = lambda t, Y, **kwrd: -.05*Y[0], \
-         esp = lambda t, Y, **kwrd: np.sin(2*np.pi*Y[1]), \
+         esp = lambda t, Y, **kwrd: -np.sin(2*np.pi*Y[1]), \
          gef = 1, calculaEq = False, **kwrd ):
   if calculaEq:
     fun2solve = lambda z:dYdt( t=t, Y=[0,z], amp=amp, esp=esp, far=far, gef=gef, **kwrd )[0]
@@ -36,8 +36,9 @@ def dYdt( t, Y, \
   dzdt = v
   return [dvdt, dzdt]
 
-def resolve( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, events=None, \
-            SHOW=True, RETORNA=False, max_step=np.inf, **kwrd ):
+def resolve( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, \
+              events=None, rtol=1e-6, atol=1e-9, max_step=np.inf, \
+            SHOW=True, RETORNA=False, **kwrd ):
   if (y0=='Eq'):
     z0 = funR( t=-1, Y=[0, 0], calculaEq=True, **kwrd )
     v0 = 0.
@@ -48,8 +49,9 @@ def resolve( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, events=None, \
   # print( f'{y0Ef = }' )
   t_eval=np.arange(t_span[0], t_span[-1]+dt, dt)
   t_eval = t_eval[t_eval<=t_span[-1]]
-  SOL = solve_ivp( fun=lambda t, Y: funR(t,Y,**kwrd), t_span=t_span, y0=y0Ef, method='DOP853',\
-                    t_eval=t_eval, max_step=max_step, events=events )
+  SOL = solve_ivp( fun=lambda t, Y: funR(t,Y,**kwrd), t_span=t_span, \
+                   y0=y0Ef, method='DOP853', t_eval=t_eval, \
+                   max_step=max_step, rtol=rtol, atol=atol, events=events )
 
   if SHOW:
     plt.figure()
@@ -64,7 +66,7 @@ def resolve( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, events=None, \
   if RETORNA:
     return SOL
 
-def fazOff(t, Y, dtOff=.05, tIni=0, ampOn=-1.3, DT=None, **kwrd):
+def fazOff(t, Y, dtOff=.05, tIni=0, ampOn=1.3, DT=None, **kwrd):
   tEf = (t-tIni)
   if (tEf<0) or (dtOff is None):
     return ampOn
