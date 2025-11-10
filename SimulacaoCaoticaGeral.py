@@ -37,8 +37,8 @@ def dYdt( t, Y, \
   return [dvdt, dzdt]
 
 def resolve( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, \
-              events=None, rtol=1e-6, atol=1e-9, max_step=np.inf, \
-            SHOW=True, RETORNA=False, **kwrd ):
+            events=None, rtol=1e-6, atol=1e-9, max_step=np.inf, \
+            method='DOP853', SHOW=True, RETORNA=False, **kwrd ):
   if (y0=='Eq'):
     z0 = funR( t=-1, Y=[0, 0], calculaEq=True, **kwrd )
     v0 = 0.
@@ -50,7 +50,7 @@ def resolve( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, \
   t_eval=np.arange(t_span[0], t_span[-1]+dt, dt)
   t_eval = t_eval[t_eval<=t_span[-1]]
   SOL = solve_ivp( fun=lambda t, Y: funR(t,Y,**kwrd), t_span=t_span, \
-                   y0=y0Ef, method='DOP853', t_eval=t_eval, \
+                   y0=y0Ef, method=method, t_eval=t_eval, \
                    max_step=max_step, rtol=rtol, atol=atol, events=events )
 
   if SHOW:
@@ -81,3 +81,142 @@ def fazOff(t, Y, dtOff=.05, tIni=0, ampOn=1.3, DT=None, **kwrd):
 def eventoExtremo(t, Y):
   v, z = Y
   return v
+
+
+def resolveEmPassos( funR=dYdt, t_span = [0., 40.], y0='Eq', dt = 0.1, \
+                    tPIni = 0, dtP = None, DTP = None, \
+                    events=None, rtol=1e-6, atol=1e-9, max_step=np.inf, \
+                    method='DOP853', SHOW=True, RETORNA=False, \
+                    kwrd_dtP={}, kwrd_DTP={}, **kwrd ):
+  if (y0=='Eq'):
+    z0 = funR( t=tPIni-1, Y=[0, 0], calculaEq=True, **kwrd )
+    v0 = 0.
+    y0Ef = [v0, z0]
+  else:
+    y0Ef = y0.copy()
+
+  T_EVALs = []
+  Y_EVALs = []
+  if events is not None:
+    try:
+       nada = len(events)
+    except:
+      events = [events]
+    T_EVENTSs = [[]]*len(events)
+    Y_EVENTSs = [[]]*len(events)
+  NFEVs = []
+  NJEVs = []
+  NLUs = []
+  T_SPANs = []
+
+  t_atu = 1.0*t_span[0]
+  #T_EVALs.append(t_atu)
+  #Y_EVALs.append(y0Ef.copy())
+  #next_t_eval = t_atu + dt
+  next_t_eval = t_span[0]
+  if dtP is None:
+    # Se não houver indicação de duração de solução diferenciada, faz a
+    #  integração em uma única etapa
+    t_span_atu = t_span.copy()
+    tipo_intervalo = 2
+    proximo_intervalo = 0
+  elif t_atu<tPIni:
+    # Se o tempo for anterior ao início da integração por passos
+    t_span_atu = [t_atu, tPIni]
+    tipo_intervalo = 2
+    proximo_intervalo = 1
+  elif (DTP is None):
+    # Se não houver periodicidade, o que importa é saber se esta dentro do
+    #  intervalo de tempo de solução diferenciada
+    if (t_atu-tPIni) < dtP:
+      t_span_atu = [t_atu, tPIni + dtP]
+      tipo_intervalo = 1
+      proximo_intervalo = 0
+    else:
+      t_span_atu =  t_span.copy()
+      tipo_intervalo = 2
+      proximo_intervalo = 0
+  elif (t_atu-tPIni)%DTP < dtP:
+    # Se o tempo estiver na parte da solução dtP
+    t_span_atu = [t_atu, tPIni + DTP*np.fix((t_atu-tPIni)/DTP) + dtP]
+    tipo_intervalo = 1
+    proximo_intervalo = 2
+  else: # Se o tempo estiver na parte da solução não dtP
+    t_span_atu = [t_atu, tPIni + DTP*(1+np.fix((t_atu-tPIni)/DTP))]
+    tipo_intervalo = 2
+    proximo_intervalo = 1
+  
+  while t_atu<t_span[-1]:
+    T_SPANs.append(t_span_atu.copy())
+    if tipo_intervalo==1:
+      kwrd_atu =  {**kwrd, **kwrd_dtP}
+    else:
+      kwrd_atu = {**kwrd, **kwrd_DTP}
+
+    SOL_ATU = solve_ivp( fun=lambda t, Y: funR(t,Y,**kwrd_atu), t_span=t_span_atu, \
+                   y0=y0Ef, method=method, dense_output=True, \
+                   max_step=max_step, rtol=rtol, atol=atol, events=events )
+    y0Ef = SOL_ATU.y[:,-1]
+    while( next_t_eval<=t_span_atu[-1] ):
+      t_eval_atu = next_t_eval
+      T_EVALs.append(t_eval_atu)
+      Y_EVALs.append( SOL_ATU.sol(t_eval_atu) )
+      next_t_eval = t_eval_atu + dt
+
+    if SOL_ATU.t_events is not None:
+      for i_ev in range(len(SOL_ATU.t_events)):
+        for t_e_i in SOL_ATU.t_events[i_ev]:
+          T_EVENTSs[i_ev].append( t_e_i )
+        for y_e_i in SOL_ATU.y_events[i_ev]:
+          Y_EVENTSs[i_ev].append( y_e_i )
+    NFEVs.append(SOL_ATU.nfev)
+    NJEVs.append(SOL_ATU.njev)
+    NLUs.append(SOL_ATU.nlu)
+
+    t_atu = t_span_atu[-1]
+    if proximo_intervalo==0:
+      t_span_atu = [t_atu, t_span[-1]]
+    elif proximo_intervalo==1:
+      t_span_atu = [t_atu, min(t_atu+dtP,t_span[-1])]
+      tipo_intervalo = 1
+      proximo_intervalo=2
+    elif proximo_intervalo==2:
+      t_span_atu = [t_atu, min(t_atu+(DTP-dtP),t_span[-1])]
+      tipo_intervalo = 2
+      proximo_intervalo=1
+
+  SOL = SOL_ATU
+  SOL.t = np.array( T_EVALs )
+  SOL.y = np.array( Y_EVALs ).T
+  SOL.sol = None
+  if events is not None:
+    SOL.t_events=[]
+    SOL.y_events=[]
+    for i_ev in range(len(events)):
+      SOL.t_events.append( np.array( T_EVENTSs[i_ev] ) )
+      SOL.y_events.append( np.array( Y_EVENTSs[i_ev] ) )
+  else:
+    SOL.t_events = None
+    SOL.y_events = None
+  SOL.nfev = np.sum(NFEVs)
+  SOL.njev = np.sum(NJEVs)
+  SOL.nlu = np.sum(NLUs)
+  #SOL.NFEVs = NFEVs
+  #SOL.NJEVs = NJEVs
+  #SOL.NLUs = NLUs
+  #SOL.T_SPANs = T_SPANs
+
+  if SHOW:
+    plt.figure()
+    plt.subplot(2,1,1)
+    plt.plot( SOL.t, SOL.y[0], '.-' )
+    plt.ylabel( 'v' )
+    plt.subplot(2,1,2)
+    plt.plot( SOL.t, SOL.y[1], '.-' )
+    plt.ylabel( 'z' )
+    plt.xlabel( 't' )
+    plt.show()
+  if RETORNA:
+    return SOL
+
+
